@@ -307,9 +307,12 @@ Examples:
         # Lowest/worst pass rate comparison
         if "lowest" in msg or "worst" in msg or "best" in msg or "highest" in msg:
             if "lab" in msg and ("pass" in msg or "rate" in msg or "score" in msg):
+                print(f"[debug] Checking lowest/highest query", file=sys.stderr)
                 # Get all labs and compare
                 items = await self.lms.get_items()
+                print(f"[debug] Got {len(items)} items", file=sys.stderr)
                 labs = [item for item in items if item.get("type") == "lab"]
+                print(f"[debug] Found {len(labs)} labs", file=sys.stderr)
                 
                 if not labs:
                     return "No labs found."
@@ -318,10 +321,14 @@ Examples:
                 lab_rates = []
                 for lab in labs[:7]:  # Limit to first 7 labs
                     lab_id = f"lab-{str(lab.get('id', '')).zfill(2)}"
+                    print(f"[debug] Fetching pass rates for {lab_id}", file=sys.stderr)
                     rates = await self.lms.get_pass_rates(lab_id)
+                    print(f"[debug] Got {len(rates) if rates else 0} rates", file=sys.stderr)
                     if rates:
                         avg = sum(t.get('avg_score', 0) for t in rates) / len(rates) if rates else 0
                         lab_rates.append((lab.get('title', lab_id), avg, lab_id))
+                
+                print(f"[debug] Collected {len(lab_rates)} lab rates", file=sys.stderr)
                 
                 if not lab_rates:
                     return "No pass rate data available."
