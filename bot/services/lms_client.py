@@ -41,11 +41,12 @@ class LMSClient:
             lab: Lab identifier (e.g., 'lab-04').
         
         Returns:
-            List of task pass rates with task_name, pass_rate, attempts.
+            List of task pass rates with task, avg_score, attempts.
         """
         async with httpx.AsyncClient() as client:
+            # Note: endpoint expects query param without trailing slash
             resp = await client.get(
-                f"{self.base_url}/analytics/pass-rates/",
+                f"{self.base_url}/analytics/pass-rates",
                 params={"lab": lab},
                 headers=self._headers,
                 timeout=10.0
@@ -57,7 +58,6 @@ class LMSClient:
             if isinstance(data, list):
                 return data
             elif isinstance(data, dict):
-                # Try common key names
                 return data.get("pass_rates", data.get("data", data.get("results", [])))
             return []
     
@@ -66,7 +66,7 @@ class LMSClient:
         async with httpx.AsyncClient() as client:
             params = {"lab": lab} if lab else {}
             resp = await client.get(
-                f"{self.base_url}/analytics/scores/",
+                f"{self.base_url}/analytics/scores",
                 params=params,
                 headers=self._headers,
                 timeout=10.0

@@ -23,7 +23,7 @@ async def handle_health(lms: "LMSClient") -> str:
         if item_count > 0:
             return f"✅ Backend is healthy. {item_count} items available."
         else:
-            return "⚠️ Backend is running but no data found. Run ETL sync."
+            return "⚠️ Backend running but 0 items. Run ETL sync."
     
     except Exception as e:
         # Extract clean error message without traceback
@@ -38,6 +38,6 @@ async def handle_health(lms: "LMSClient") -> str:
         elif "404" in error_msg:
             return f"❌ Backend error: HTTP 404 Not Found."
         elif "500" in error_msg or "502" in error_msg or "503" in error_msg:
-            return f"❌ Backend error: HTTP {error_msg.split()[1] if error_msg.split() else 'error'}. The backend service may be down."
+            return f"❌ Backend error: HTTP 502 Bad Gateway. The backend service may be down."
         else:
             return f"❌ Backend error: {error_type}. {error_msg[:100]}"

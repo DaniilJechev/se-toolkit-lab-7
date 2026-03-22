@@ -35,17 +35,17 @@ async def handle_scores(lms: "LMSClient", lab_name: Optional[str] = None) -> str
             # Try to get items and check if lab exists
             items = await lms.get_items()
             labs = [item for item in items if item.get("type") == "lab"]
-            lab_ids = [str(lab.get("id")) for lab in labs]
+            lab_ids = [f"lab-{str(lab.get('id', '')).zfill(2)}" for lab in labs[:5]]
             
-            return f"📊 No pass rate data for {lab_name}.\n\nAvailable labs: {', '.join(lab_ids[:5])}"
+            return f"📊 No pass rate data for {lab_name}.\n\nAvailable: {', '.join(lab_ids)}"
         
-        # Format pass rates
+        # Format pass rates - backend returns: task, avg_score, attempts
         lines = [f"📊 Pass rates for {lab_name.title()}:\n"]
-        for task in pass_rates:
-            task_name = task.get("task_name", "Unknown Task")
-            pass_rate = task.get("pass_rate", 0)
-            attempts = task.get("attempts", 0)
-            lines.append(f"• {task_name}: {pass_rate:.1f}% ({attempts} attempts)")
+        for task_data in pass_rates:
+            task_name = task_data.get("task", "Unknown Task")
+            avg_score = task_data.get("avg_score", 0)
+            attempts = task_data.get("attempts", 0)
+            lines.append(f"• {task_name}: {avg_score:.1f}% ({attempts} attempts)")
         
         return "\n".join(lines)
     
