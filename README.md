@@ -64,7 +64,7 @@ fasdf
 4. README documents deployment
 fasdf
 ## Learning advice
-
+fasdf
 Notice the progression above: **product brief** (vague customer ask) → **prioritized requirements** (structured) → **task specifications** (precise deliverables + acceptance criteria). This is how engineering work flows.
 
 You are not following step-by-step instructions — you are building a product with an AI coding agent. The learning comes from planning, building, testing, and debugging iteratively.
