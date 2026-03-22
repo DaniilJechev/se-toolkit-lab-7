@@ -55,7 +55,7 @@ This is what a customer might tell you. Your job is to turn it into a working pr
 1. Rich formatting (tables, charts as images)
 2. Response caching
 3. Conversation context (multi-turn)
-
+fasdf
 ### P3 — Deployment
 fasdf
 1. Bot containerized with Dockerfile
