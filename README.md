@@ -57,7 +57,7 @@ This is what a customer might tell you. Your job is to turn it into a working pr
 3. Conversation context (multi-turn)
 
 ### P3 — Deployment
-
+fasdf
 1. Bot containerized with Dockerfile
 2. Added as service in `docker-compose.yml`
 3. Deployed and running on VM
