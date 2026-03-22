@@ -288,8 +288,12 @@ Examples:
             
             # LLM returned final answer or error
             if response.content:
+                # Check if it's an error - use fallback
+                if "error" in response.content.lower() or "401" in response.content:
+                    print(f"[fallback] LLM error, using simple routing", file=sys.stderr)
+                    return await self._simple_route(user_message)
                 return response.content
-            
+
             # Fallback: try simple chat without tools
             print(f"[fallback] No tool calls, using simple routing", file=sys.stderr)
             return await self._simple_route(user_message)
