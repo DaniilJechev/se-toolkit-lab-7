@@ -11,6 +11,7 @@ Usage:
 import sys
 import argparse
 import asyncio
+import re
 from typing import Optional
 
 # Import handlers
@@ -25,11 +26,28 @@ from handlers.default import handle_unknown
 # Import config
 from config import get_config
 from services.lms_client import LMSClient
+from services.llm_client import LLMClient
+from services.intent_router import IntentRouter
+
+
+# Global router instance for Telegram mode
+_router: Optional[IntentRouter] = None
+
+
+def get_router() -> IntentRouter:
+    """Get or create the intent router instance."""
+    global _router
+    if _router is None:
+        config = get_config()
+        lms = LMSClient(config.lms_api_url, config.lms_api_key)
+        llm = LLMClient(config.llm_api_key, config.llm_api_base_url, config.llm_model)
+        _router = IntentRouter(llm, lms)
+    return _router
 
 
 async def process_message_async(text: str) -> str:
     """
-    Process message with async operations (LMS API, LLM).
+    Process message with LLM intent routing.
     
     Args:
         text: User message text
@@ -38,16 +56,15 @@ async def process_message_async(text: str) -> str:
         Response string
     """
     text = text.strip()
-    config = get_config()
     
-    # Create LMS client
-    lms = LMSClient(config.lms_api_url, config.lms_api_key)
-    
-    # Handle slash commands
+    # Handle slash commands directly (backward compatibility)
     if text.startswith("/"):
         parts = text.split(maxsplit=1)
         command = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else None
+        
+        config = get_config()
+        lms = LMSClient(config.lms_api_url, config.lms_api_key)
         
         if command == "/start":
             return handle_start()
@@ -64,20 +81,9 @@ async def process_message_async(text: str) -> str:
         else:
             return handle_unknown(command)
     
-    # Natural language - simple keyword matching for now
-    text_lower = text.lower()
-    if "lab" in text_lower and ("available" in text_lower or "list" in text_lower):
-        return await handle_labs(lms)
-    elif "score" in text_lower:
-        # Try to extract lab name
-        import re
-        match = re.search(r'lab[- ]?\d+', text_lower, re.IGNORECASE)
-        lab = match.group(0) if match else None
-        return await handle_scores(lms, lab)
-    elif "help" in text_lower:
-        return handle_help()
-    else:
-        return handle_unknown(text)
+    # Use LLM intent routing for natural language
+    router = get_router()
+    return await router.route(text)
 
 
 def run_test_mode(command: str) -> None:
@@ -85,7 +91,7 @@ def run_test_mode(command: str) -> None:
     Run bot in test mode - process command and print result.
     
     Args:
-        command: Command to test (e.g., "/start", "/help")
+        command: Command to test (e.g., "/start", "what labs are available")
     """
     response = asyncio.run(process_message_async(command))
     print(response)
@@ -97,6 +103,7 @@ async def run_telegram_bot() -> None:
     try:
         from aiogram import Bot, Dispatcher, types
         from aiogram.filters import CommandStart, Command
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     except ImportError:
         print("Error: aiogram not installed. Run: uv sync")
         sys.exit(1)
@@ -110,10 +117,19 @@ async def run_telegram_bot() -> None:
     bot = Bot(token=config.bot_token)
     dp = Dispatcher()
     
+    # Create inline keyboard for /start
+    def get_main_keyboard() -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📚 Labs", callback_data="labs")],
+            [InlineKeyboardButton(text="📊 Scores", callback_data="scores")],
+            [InlineKeyboardButton(text="💚 Health", callback_data="health")],
+            [InlineKeyboardButton(text="❓ Help", callback_data="help")],
+        ])
+    
     @dp.message(CommandStart())
     async def on_start(message: types.Message):
         response = handle_start(message.from_user.first_name)
-        await message.answer(response)
+        await message.answer(response, reply_markup=get_main_keyboard())
     
     @dp.message(Command("help"))
     async def on_help(message: types.Message):
@@ -129,7 +145,7 @@ async def run_telegram_bot() -> None:
     async def on_labs(message: types.Message):
         lms = LMSClient(config.lms_api_url, config.lms_api_key)
         response = await handle_labs(lms)
-        await message.answer(response)
+        await message.answer(response, reply_markup=get_main_keyboard())
     
     @dp.message(Command("scores"))
     async def on_scores(message: types.Message):
@@ -145,10 +161,28 @@ async def run_telegram_bot() -> None:
         response = await handle_submissions(lms, lab_name)
         await message.answer(response)
     
+    @dp.callback_query()
+    async def on_callback(callback: types.CallbackQuery):
+        await callback.answer()
+        lms = LMSClient(config.lms_api_url, config.lms_api_key)
+        
+        if callback.data == "labs":
+            response = await handle_labs(lms)
+            await callback.message.answer(response, reply_markup=get_main_keyboard())
+        elif callback.data == "scores":
+            response = "📊 Use /scores lab-XX to see scores. Example: /scores lab-04"
+            await callback.message.answer(response)
+        elif callback.data == "health":
+            response = await handle_health(lms)
+            await callback.message.answer(response)
+        elif callback.data == "help":
+            await callback.message.answer(handle_help())
+    
     @dp.message()
     async def on_message(message: types.Message):
-        lms = LMSClient(config.lms_api_url, config.lms_api_key)
-        response = await process_message_async(message.text)
+        # Use LLM intent routing for natural language
+        router = get_router()
+        response = await router.route(message.text)
         await message.answer(response)
     
     print(f"Bot started. Polling...")
