@@ -4,6 +4,8 @@ import sys
 from typing import Any, Optional
 from dataclasses import dataclass
 
+from services.llm_client import LLMResponse
+
 
 @dataclass
 class ToolCall:
@@ -290,6 +292,10 @@ TOOL_CALL: tool_name({"arg": "value"})
                 continue
             
             # LLM returned final answer
+            if isinstance(response, LLMResponse):
+                if response.content:
+                    return response.content
+                return "I need more information to answer this."
             if isinstance(response, dict):
                 return response.get('content', str(response))
             elif hasattr(response, 'content'):
