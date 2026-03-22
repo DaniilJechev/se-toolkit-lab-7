@@ -5,6 +5,7 @@ from typing import Any, Optional
 from dataclasses import dataclass
 
 from services.llm_client import LLMResponse
+from services.simple_router import simple_route
 
 
 @dataclass
@@ -291,107 +292,11 @@ Examples:
                 # Check if it's an error - use fallback
                 if "error" in response.content.lower() or "401" in response.content:
                     print(f"[fallback] LLM error, using simple routing", file=sys.stderr)
-                    return await self._simple_route(user_message)
+                    return await simple_route(user_message, self.lms)
                 return response.content
 
-            # Fallback: try simple chat without tools
+            # Fallback: try simple routing without LLM
             print(f"[fallback] No tool calls, using simple routing", file=sys.stderr)
-            return await self._simple_route(user_message)
+            return await simple_route(user_message, self.lms)
         
         return "I need more iterations to answer this. Please try rephrasing."
-    
-    async def _simple_route(self, user_message: str) -> str:
-        """Simple keyword-based routing as fallback."""
-        msg = user_message.lower()
-
-        # Greeting - check for whole words only
-        if msg in ["hello", "hi", "hey", "yo", "sup"] or msg.startswith("hello ") or msg.startswith("hi ") or msg.startswith("hey "):
-            return "Hello! I can help you with LMS data. Try asking about labs, scores, or students."
-        
-        # Lowest/worst pass rate comparison
-        if "lowest" in msg or "worst" in msg or "best" in msg or "highest" in msg:
-            if "lab" in msg and ("pass" in msg or "rate" in msg or "score" in msg):
-                print(f"[debug] Checking lowest/highest query", file=sys.stderr)
-                # Get all labs and compare
-                items = await self.lms.get_items()
-                print(f"[debug] Got {len(items)} items", file=sys.stderr)
-                labs = [item for item in items if item.get("type") == "lab"]
-                print(f"[debug] Found {len(labs)} labs", file=sys.stderr)
-                
-                if not labs:
-                    return "No labs found."
-                
-                # Get pass rates for each lab
-                lab_rates = []
-                for lab in labs[:7]:  # Limit to first 7 labs
-                    lab_id = f"lab-{str(lab.get('id', '')).zfill(2)}"
-                    print(f"[debug] Fetching pass rates for {lab_id}", file=sys.stderr)
-                    rates = await self.lms.get_pass_rates(lab_id)
-                    print(f"[debug] Got {len(rates) if rates else 0} rates", file=sys.stderr)
-                    if rates:
-                        avg = sum(t.get('avg_score', 0) for t in rates) / len(rates) if rates else 0
-                        lab_rates.append((lab.get('title', lab_id), avg, lab_id))
-                
-                print(f"[debug] Collected {len(lab_rates)} lab rates", file=sys.stderr)
-                
-                if not lab_rates:
-                    return "No pass rate data available."
-                
-                # Sort by average
-                lab_rates.sort(key=lambda x: x[1], reverse=("best" in msg or "highest" in msg))
-                
-                if "lowest" in msg or "worst" in msg:
-                    result = lab_rates[0]  # Lowest
-                    return f"Based on the data, {result[0]} has the lowest average pass rate at {result[1]:.1f}%."
-                else:
-                    result = lab_rates[0]  # Highest (after reverse sort)
-                    return f"Based on the data, {result[0]} has the highest average pass rate at {result[1]:.1f}%."
-        
-        # Labs
-        if "lab" in msg and ("available" in msg or "list" in msg or "what" in msg):
-            items = await self.lms.get_items()
-            labs = [item for item in items if item.get("type") == "lab"]
-            if labs:
-                lab_list = "\n".join([f"• {lab.get('title', 'Unknown')}" for lab in labs[:10]])
-                return f"📚 Available Labs:\n\n{lab_list}"
-            return "No labs found."
-        
-        # Scores
-        if "score" in msg or "pass rate" in msg:
-            import re
-            match = re.search(r'lab[- ]?(\d+)', msg)
-            if match:
-                lab_num = match.group(1).zfill(2)
-                lab = f"lab-{lab_num}"
-                rates = await self.lms.get_pass_rates(lab)
-                if rates:
-                    lines = [f"📊 Pass rates for {lab}:"]
-                    for t in rates:
-                        lines.append(f"• {t.get('task', 'Unknown')}: {t.get('avg_score', 0):.1f}% ({t.get('attempts', 0)} attempts)")
-                    return "\n".join(lines)
-            return "Specify a lab, e.g., 'scores for lab 04'"
-        
-        # Students/learners
-        if "student" in msg or "learner" in msg or "enrolled" in msg:
-            learners = await self.lms.get_learners()
-            return f"📚 {len(learners)} students enrolled."
-        
-        # Top learners
-        if "top" in msg and ("student" in msg or "learner" in msg):
-            import re
-            match = re.search(r'lab[- ]?(\d+)', msg)
-            if match:
-                lab_num = match.group(1).zfill(2)
-                lab = f"lab-{lab_num}"
-                limit_match = re.search(r'(\d+)', msg)
-                limit = int(limit_match.group(1)) if limit_match else 5
-                top = await self.lms.get_top_learners(lab, limit)
-                if top:
-                    lines = [f"🏆 Top {len(top)} learners for {lab}:"]
-                    for i, t in enumerate(top, 1):
-                        lines.append(f"{i}. Learner #{t.get('learner_id', '?')}: {t.get('avg_score', 0):.1f}% avg")
-                    return "\n".join(lines)
-            return "Specify a lab, e.g., 'top 5 students in lab 04'"
-        
-        # Default
-        return "I can help with: labs list, scores for a lab, student count. Try 'what labs are available?' or 'scores for lab 04'."
