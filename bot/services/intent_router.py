@@ -215,7 +215,7 @@ AVAILABLE TOOLS:
 - get_items(): List all labs and tasks
 - get_learners(): List enrolled students
 - get_scores(lab): Score distribution for a lab
-- get_pass_rates(lab): Per-task pass rates for a lab
+- get_pass_rates(lab): Per-task pass rates for a lab  
 - get_timeline(lab): Submission timeline for a lab
 - get_groups(lab): Per-group performance for a lab
 - get_top_learners(lab, limit=5): Top N learners
@@ -224,14 +224,17 @@ AVAILABLE TOOLS:
 
 INSTRUCTIONS:
 1. For greetings (hello, hi) - respond friendly without tools
-2. For lab queries - use appropriate tools
-3. For comparison questions - call tools for each item and compare
-4. Always use tools to get REAL data before answering
-5. If user asks about specific lab, use the lab parameter (e.g., "lab-04")
-6. After receiving tool results, summarize them clearly
+2. For lab queries - use tools to get REAL data
+3. Always mention specific lab numbers and percentages
+4. After receiving tool results, summarize them clearly
 
-RESPOND with tool calls when you need data. Format:
-TOOL_CALL: tool_name({"arg": "value"})
+To call a tool, respond with:
+TOOL: tool_name({"arg": "value"})
+
+Examples:
+- "what labs are available?" → TOOL: get_items({})
+- "scores for lab 4" → TOOL: get_pass_rates({"lab": "lab-04"})
+- "hello" → Hello! I can help you with LMS data...
 """
 
         messages = [
@@ -248,10 +251,10 @@ TOOL_CALL: tool_name({"arg": "value"})
             # Call LLM
             response = await self.llm.chat_with_tools(messages, self.tools)
             
-            print(f"[LLM] Response type: {type(response)}", file=sys.stderr)
+            print(f"[LLM] content={response.content[:50] if response.content else 'None'} tool_calls={response.tool_calls}", file=sys.stderr)
             
             # Check if LLM returned tool calls
-            if hasattr(response, 'tool_calls') and response.tool_calls:
+            if response.tool_calls:
                 # Execute tool calls
                 tool_results = []
                 for tc in response.tool_calls:
@@ -264,43 +267,71 @@ TOOL_CALL: tool_name({"arg": "value"})
                     })
                 
                 print(f"[summary] Feeding {len(tool_results)} tool result(s) back to LLM", file=sys.stderr)
-                messages.extend(tool_results)
-                continue
-            
-            # Check if response is a dict with tool_calls
-            if isinstance(response, dict) and 'tool_calls' in response:
-                tool_results = []
-                for tc in response['tool_calls']:
-                    tool_name = tc.get('function', {}).get('name', tc.get('name', ''))
-                    tool_args = tc.get('function', {}).get('arguments', tc.get('arguments', {}))
-                    if isinstance(tool_args, str):
-                        try:
-                            tool_args = json.loads(tool_args)
-                        except:
-                            tool_args = {}
-                    
-                    print(f"[tool] LLM called: {tool_name}({tool_args})", file=sys.stderr)
-                    result = await self.execute_tool(ToolCall(name=tool_name, arguments=tool_args))
-                    tool_results.append({
-                        "role": "tool",
-                        "tool_call_id": tc.get('id', '1'),
-                        "content": json.dumps(result, default=str)
-                    })
                 
-                print(f"[summary] Feeding {len(tool_results)} tool result(s) back to LLM", file=sys.stderr)
+                # Add tool results to messages
+                messages.append({
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": json.dumps(tc.arguments)
+                            }
+                        }
+                        for tc in response.tool_calls
+                    ]
+                })
                 messages.extend(tool_results)
                 continue
             
-            # LLM returned final answer
-            if isinstance(response, LLMResponse):
-                if response.content:
-                    return response.content
-                return "I need more information to answer this."
-            if isinstance(response, dict):
-                return response.get('content', str(response))
-            elif hasattr(response, 'content'):
+            # LLM returned final answer or error
+            if response.content:
                 return response.content
-            else:
-                return str(response)
+            
+            # Fallback: try simple chat without tools
+            print(f"[fallback] No tool calls, using simple routing", file=sys.stderr)
+            return await self._simple_route(user_message)
         
         return "I need more iterations to answer this. Please try rephrasing."
+    
+    async def _simple_route(self, user_message: str) -> str:
+        """Simple keyword-based routing as fallback."""
+        msg = user_message.lower()
+        
+        # Greeting
+        if any(g in msg for g in ["hello", "hi", "hey"]):
+            return "Hello! I can help you with LMS data. Try asking about labs, scores, or students."
+        
+        # Labs
+        if "lab" in msg and ("available" in msg or "list" in msg or "what" in msg):
+            items = await self.lms.get_items()
+            labs = [item for item in items if item.get("type") == "lab"]
+            if labs:
+                lab_list = "\n".join([f"• {lab.get('title', 'Unknown')}" for lab in labs[:10]])
+                return f"📚 Available Labs:\n\n{lab_list}"
+            return "No labs found."
+        
+        # Scores
+        if "score" in msg or "pass rate" in msg:
+            import re
+            match = re.search(r'lab[- ]?(\d+)', msg)
+            if match:
+                lab_num = match.group(1).zfill(2)
+                lab = f"lab-{lab_num}"
+                rates = await self.lms.get_pass_rates(lab)
+                if rates:
+                    lines = [f"📊 Pass rates for {lab}:"]
+                    for t in rates:
+                        lines.append(f"• {t.get('task', 'Unknown')}: {t.get('avg_score', 0):.1f}% ({t.get('attempts', 0)} attempts)")
+                    return "\n".join(lines)
+            return "Specify a lab, e.g., 'scores for lab 04'"
+        
+        # Students/learners
+        if "student" in msg or "learner" in msg or "enrolled" in msg:
+            learners = await self.lms.get_learners()
+            return f"📚 {len(learners)} students enrolled."
+        
+        # Default
+        return "I can help with: labs list, scores for a lab, student count. Try 'what labs are available?' or 'scores for lab 04'."
