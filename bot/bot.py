@@ -11,7 +11,6 @@ Usage:
 import sys
 import argparse
 import asyncio
-import re
 from typing import Optional
 
 # Import handlers
