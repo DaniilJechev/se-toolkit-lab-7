@@ -10,6 +10,7 @@ Usage:
 """
 import sys
 import argparse
+import asyncio
 from typing import Optional
 
 # Import handlers
@@ -23,63 +24,12 @@ from handlers.default import handle_unknown
 
 # Import config
 from config import get_config
-
-
-def parse_command(text: str) -> tuple[str, Optional[str]]:
-    """
-    Parse command text into command name and argument.
-    
-    Args:
-        text: Input text (e.g., "/scores lab-04" or "what labs are available")
-    
-    Returns:
-        Tuple of (command, argument)
-    """
-    text = text.strip()
-    
-    # Handle slash commands
-    if text.startswith("/"):
-        parts = text.split(maxsplit=1)
-        command = parts[0].lower()
-        arg = parts[1] if len(parts) > 1 else None
-        return command, arg
-    
-    # Handle natural language - will be processed by intent router
-    return text.lower(), None
-
-
-def route_command(command: str, arg: Optional[str] = None) -> str:
-    """
-    Route command to appropriate handler.
-    
-    Args:
-        command: Command name (without /)
-        arg: Optional command argument
-    
-    Returns:
-        Handler response string
-    """
-    command = command.lower().lstrip("/")
-    
-    if command == "start":
-        return handle_start()
-    elif command == "help":
-        return handle_help()
-    elif command == "health":
-        return handle_health()
-    elif command == "labs":
-        return handle_labs()
-    elif command == "scores":
-        return handle_scores(arg)
-    elif command == "submissions":
-        return handle_submissions(arg)
-    else:
-        return handle_unknown(command)
+from services.lms_client import LMSClient
 
 
 async def process_message_async(text: str) -> str:
     """
-    Process message with potential async operations (LLM, API).
+    Process message with async operations (LMS API, LLM).
     
     Args:
         text: User message text
@@ -87,11 +37,47 @@ async def process_message_async(text: str) -> str:
     Returns:
         Response string
     """
-    command, arg = parse_command(text)
+    text = text.strip()
+    config = get_config()
     
-    # For now, use simple routing
-    # Task 3 will add LLM-based intent classification
-    return route_command(command, arg)
+    # Create LMS client
+    lms = LMSClient(config.lms_api_url, config.lms_api_key)
+    
+    # Handle slash commands
+    if text.startswith("/"):
+        parts = text.split(maxsplit=1)
+        command = parts[0].lower()
+        arg = parts[1] if len(parts) > 1 else None
+        
+        if command == "/start":
+            return handle_start()
+        elif command == "/help":
+            return handle_help()
+        elif command == "/health":
+            return await handle_health(lms)
+        elif command == "/labs":
+            return await handle_labs(lms)
+        elif command == "/scores":
+            return await handle_scores(lms, arg)
+        elif command == "/submissions":
+            return await handle_submissions(lms, arg)
+        else:
+            return handle_unknown(command)
+    
+    # Natural language - simple keyword matching for now
+    text_lower = text.lower()
+    if "lab" in text_lower and ("available" in text_lower or "list" in text_lower):
+        return await handle_labs(lms)
+    elif "score" in text_lower:
+        # Try to extract lab name
+        import re
+        match = re.search(r'lab[- ]?\d+', text_lower, re.IGNORECASE)
+        lab = match.group(0) if match else None
+        return await handle_scores(lms, lab)
+    elif "help" in text_lower:
+        return handle_help()
+    else:
+        return handle_unknown(text)
 
 
 def run_test_mode(command: str) -> None:
@@ -101,15 +87,9 @@ def run_test_mode(command: str) -> None:
     Args:
         command: Command to test (e.g., "/start", "/help")
     """
-    import asyncio
-    
-    async def run():
-        response = await process_message_async(command)
-        print(response)
-        return 0
-    
-    exit_code = asyncio.run(run())
-    sys.exit(exit_code)
+    response = asyncio.run(process_message_async(command))
+    print(response)
+    sys.exit(0)
 
 
 async def run_telegram_bot() -> None:
@@ -141,26 +121,35 @@ async def run_telegram_bot() -> None:
     
     @dp.message(Command("health"))
     async def on_health(message: types.Message):
-        await message.answer(handle_health())
+        lms = LMSClient(config.lms_api_url, config.lms_api_key)
+        response = await handle_health(lms)
+        await message.answer(response)
     
     @dp.message(Command("labs"))
     async def on_labs(message: types.Message):
-        await message.answer(handle_labs())
+        lms = LMSClient(config.lms_api_url, config.lms_api_key)
+        response = await handle_labs(lms)
+        await message.answer(response)
     
     @dp.message(Command("scores"))
     async def on_scores(message: types.Message):
+        lms = LMSClient(config.lms_api_url, config.lms_api_key)
         lab_name = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else None
-        await message.answer(handle_scores(lab_name))
+        response = await handle_scores(lms, lab_name)
+        await message.answer(response)
     
     @dp.message(Command("submissions"))
     async def on_submissions(message: types.Message):
+        lms = LMSClient(config.lms_api_url, config.lms_api_key)
         lab_name = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else None
-        await message.answer(handle_submissions(lab_name))
+        response = await handle_submissions(lms, lab_name)
+        await message.answer(response)
     
     @dp.message()
     async def on_message(message: types.Message):
-        # Task 3: Add LLM intent routing here
-        await message.answer(handle_unknown(message.text))
+        lms = LMSClient(config.lms_api_url, config.lms_api_key)
+        response = await process_message_async(message.text)
+        await message.answer(response)
     
     print(f"Bot started. Polling...")
     await dp.start_polling(bot)
@@ -181,7 +170,6 @@ def main() -> None:
     if args.test:
         run_test_mode(args.test)
     else:
-        import asyncio
         try:
             asyncio.run(run_telegram_bot())
         except KeyboardInterrupt:

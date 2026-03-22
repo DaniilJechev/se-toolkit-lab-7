@@ -1,27 +1,61 @@
 """Handler for /scores command."""
+import re
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from services.lms_client import LMSClient
 
 
-def handle_scores(lab_name: str = None) -> str:
+async def handle_scores(lms: "LMSClient", lab_name: Optional[str] = None) -> str:
     """
     Handle the /scores command.
     
     Args:
+        lms: LMS API client instance.
         lab_name: Optional lab name to filter scores.
     
     Returns:
-        Scores information message.
+        Scores information with per-task pass rates.
     """
-    if lab_name:
-        return f"📊 Scores for {lab_name}:\n\nScore: --/100\nStatus: Checking...\n\nUse the LMS dashboard for detailed information."
-    else:
-        return (
-            "📊 Your Scores:\n\n"
-            "Lab 01: --/100\n"
-            "Lab 02: --/100\n"
-            "Lab 03: --/100\n"
-            "Lab 04: --/100\n"
-            "Lab 05: --/100\n"
-            "Lab 06: --/100\n"
-            "Lab 07: --/100\n\n"
-            "Use /scores lab-XX for detailed info."
-        )
+    if not lab_name:
+        return "📊 Usage: /scores lab-XX\n\nExample: /scores lab-04"
+    
+    # Normalize lab name (lab-04, lab04, lab 04 -> lab-04)
+    lab_name = lab_name.lower().strip()
+    match = re.search(r'lab[- ]?(\d+)', lab_name, re.IGNORECASE)
+    if match:
+        lab_num = match.group(1).zfill(2)
+        lab_name = f"lab-{lab_num}"
+    
+    try:
+        # Get pass rates from backend
+        pass_rates = await lms.get_pass_rates(lab_name)
+        
+        if not pass_rates:
+            # Try to get items and check if lab exists
+            items = await lms.get_items()
+            labs = [item for item in items if item.get("type") == "lab"]
+            lab_ids = [str(lab.get("id")) for lab in labs]
+            
+            return f"📊 No pass rate data for {lab_name}.\n\nAvailable labs: {', '.join(lab_ids[:5])}"
+        
+        # Format pass rates
+        lines = [f"📊 Pass rates for {lab_name.title()}:\n"]
+        for task in pass_rates:
+            task_name = task.get("task_name", "Unknown Task")
+            pass_rate = task.get("pass_rate", 0)
+            attempts = task.get("attempts", 0)
+            lines.append(f"• {task_name}: {pass_rate:.1f}% ({attempts} attempts)")
+        
+        return "\n".join(lines)
+    
+    except Exception as e:
+        error_msg = str(e)
+        if "connection" in error_msg.lower() or "connect" in error_msg.lower():
+            return "❌ Backend error: connection refused. Check that the services are running."
+        elif "401" in error_msg or "unauthorized" in error_msg.lower():
+            return "❌ Backend error: HTTP 401 Unauthorized. Check LMS_API_KEY."
+        elif "404" in error_msg:
+            return f"❌ Lab {lab_name} not found."
+        else:
+            return f"❌ Backend error: {error_msg[:100]}"

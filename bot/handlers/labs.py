@@ -1,21 +1,46 @@
 """Handler for /labs command."""
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from services.lms_client import LMSClient
 
 
-def handle_labs() -> str:
+async def handle_labs(lms: "LMSClient") -> str:
     """
     Handle the /labs command.
     
+    Args:
+        lms: LMS API client instance.
+    
     Returns:
-        List of available labs.
+        List of available labs from backend.
     """
-    return (
-        "📚 Available Labs:\n\n"
-        "• Lab 01 – Products, Architecture & Roles\n"
-        "• Lab 02 – Requirements & Use Cases\n"
-        "• Lab 03 – Domain Modeling\n"
-        "• Lab 04 – Application Logic\n"
-        "• Lab 05 – Data Persistence\n"
-        "• Lab 06 – Testing & CI/CD\n"
-        "• Lab 07 – Telegram Bot & LLM Integration\n\n"
-        "Use /scores lab-XX to check your score for a specific lab."
-    )
+    try:
+        items = await lms.get_items()
+        
+        if not items:
+            return "📚 No labs available. Run ETL sync to populate data."
+        
+        # Filter only lab-type items
+        labs = [item for item in items if item.get("type") == "lab"]
+        
+        if not labs:
+            return "📚 No labs found in the system."
+        
+        # Format lab list
+        lab_lines = []
+        for lab in labs:
+            title = lab.get("title", "Unknown Lab")
+            lab_id = lab.get("id", "?")
+            lab_lines.append(f"• {title}")
+        
+        return "📚 Available Labs:\n\n" + "\n".join(lab_lines) + "\n\nUse /scores lab-XX for detailed info."
+    
+    except Exception as e:
+        error_msg = str(e)
+        if "connection" in error_msg.lower() or "connect" in error_msg.lower():
+            return "❌ Backend error: connection refused. Check that the services are running."
+        elif "401" in error_msg or "unauthorized" in error_msg.lower():
+            return "❌ Backend error: HTTP 401 Unauthorized. Check LMS_API_KEY."
+        else:
+            return f"❌ Backend error: {error_msg[:100]}"

@@ -16,7 +16,8 @@ class LMSClient:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 f"{self.base_url}/items/",
-                headers=self._headers
+                headers=self._headers,
+                timeout=10.0
             )
             resp.raise_for_status()
             return resp.json()
@@ -26,7 +27,49 @@ class LMSClient:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 f"{self.base_url}/logs/",
-                headers=self._headers
+                headers=self._headers,
+                timeout=10.0
+            )
+            resp.raise_for_status()
+            return resp.json()
+    
+    async def get_pass_rates(self, lab: str) -> List[Dict[str, Any]]:
+        """
+        Fetch pass rates for a specific lab.
+        
+        Args:
+            lab: Lab identifier (e.g., 'lab-04').
+        
+        Returns:
+            List of task pass rates with task_name, pass_rate, attempts.
+        """
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.base_url}/analytics/pass-rates/",
+                params={"lab": lab},
+                headers=self._headers,
+                timeout=10.0
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            
+            # Handle different response formats
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict):
+                # Try common key names
+                return data.get("pass_rates", data.get("data", data.get("results", [])))
+            return []
+    
+    async def get_scores(self, lab: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Fetch score distribution."""
+        async with httpx.AsyncClient() as client:
+            params = {"lab": lab} if lab else {}
+            resp = await client.get(
+                f"{self.base_url}/analytics/scores/",
+                params=params,
+                headers=self._headers,
+                timeout=10.0
             )
             resp.raise_for_status()
             return resp.json()
