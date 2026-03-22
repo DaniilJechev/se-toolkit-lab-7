@@ -1,12 +1,19 @@
 """Configuration module for the bot."""
 import os
+from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
 
 
 class BotConfig:
     """Bot configuration loaded from environment variables."""
     
     def __init__(self):
+        # Load .env.bot.secret if it exists
+        env_file = Path(__file__).parent / ".env.bot.secret"
+        if env_file.exists():
+            load_dotenv(env_file)
+        
         # Telegram Bot Token
         self.bot_token: str = os.getenv("BOT_TOKEN", "")
         
