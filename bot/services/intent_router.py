@@ -303,9 +303,9 @@ Examples:
     async def _simple_route(self, user_message: str) -> str:
         """Simple keyword-based routing as fallback."""
         msg = user_message.lower()
-        
-        # Greeting
-        if any(g in msg for g in ["hello", "hi", "hey"]):
+
+        # Greeting - check for whole words only
+        if msg in ["hello", "hi", "hey", "yo", "sup"] or msg.startswith("hello ") or msg.startswith("hi ") or msg.startswith("hey "):
             return "Hello! I can help you with LMS data. Try asking about labs, scores, or students."
         
         # Lowest/worst pass rate comparison
