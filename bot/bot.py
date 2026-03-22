@@ -96,7 +96,7 @@ async def run_telegram_bot() -> None:
     """Run the bot with Telegram polling."""
     try:
         from aiogram import Bot, Dispatcher, types
-        from aiogram.filters import CommandStart
+        from aiogram.filters import CommandStart, Command
     except ImportError:
         print("Error: aiogram not installed. Run: uv sync")
         sys.exit(1)
