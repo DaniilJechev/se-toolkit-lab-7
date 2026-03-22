@@ -304,6 +304,38 @@ Examples:
         if any(g in msg for g in ["hello", "hi", "hey"]):
             return "Hello! I can help you with LMS data. Try asking about labs, scores, or students."
         
+        # Lowest/worst pass rate comparison
+        if "lowest" in msg or "worst" in msg or "best" in msg or "highest" in msg:
+            if "lab" in msg and ("pass" in msg or "rate" in msg or "score" in msg):
+                # Get all labs and compare
+                items = await self.lms.get_items()
+                labs = [item for item in items if item.get("type") == "lab"]
+                
+                if not labs:
+                    return "No labs found."
+                
+                # Get pass rates for each lab
+                lab_rates = []
+                for lab in labs[:7]:  # Limit to first 7 labs
+                    lab_id = f"lab-{str(lab.get('id', '')).zfill(2)}"
+                    rates = await self.lms.get_pass_rates(lab_id)
+                    if rates:
+                        avg = sum(t.get('avg_score', 0) for t in rates) / len(rates) if rates else 0
+                        lab_rates.append((lab.get('title', lab_id), avg, lab_id))
+                
+                if not lab_rates:
+                    return "No pass rate data available."
+                
+                # Sort by average
+                lab_rates.sort(key=lambda x: x[1], reverse=("best" in msg or "highest" in msg))
+                
+                if "lowest" in msg or "worst" in msg:
+                    result = lab_rates[0]  # Lowest
+                    return f"Based on the data, {result[0]} has the lowest average pass rate at {result[1]:.1f}%."
+                else:
+                    result = lab_rates[0]  # Highest (after reverse sort)
+                    return f"Based on the data, {result[0]} has the highest average pass rate at {result[1]:.1f}%."
+        
         # Labs
         if "lab" in msg and ("available" in msg or "list" in msg or "what" in msg):
             items = await self.lms.get_items()
@@ -332,6 +364,23 @@ Examples:
         if "student" in msg or "learner" in msg or "enrolled" in msg:
             learners = await self.lms.get_learners()
             return f"📚 {len(learners)} students enrolled."
+        
+        # Top learners
+        if "top" in msg and ("student" in msg or "learner" in msg):
+            import re
+            match = re.search(r'lab[- ]?(\d+)', msg)
+            if match:
+                lab_num = match.group(1).zfill(2)
+                lab = f"lab-{lab_num}"
+                limit_match = re.search(r'(\d+)', msg)
+                limit = int(limit_match.group(1)) if limit_match else 5
+                top = await self.lms.get_top_learners(lab, limit)
+                if top:
+                    lines = [f"🏆 Top {len(top)} learners for {lab}:"]
+                    for i, t in enumerate(top, 1):
+                        lines.append(f"{i}. Learner #{t.get('learner_id', '?')}: {t.get('avg_score', 0):.1f}% avg")
+                    return "\n".join(lines)
+            return "Specify a lab, e.g., 'top 5 students in lab 04'"
         
         # Default
         return "I can help with: labs list, scores for a lab, student count. Try 'what labs are available?' or 'scores for lab 04'."
